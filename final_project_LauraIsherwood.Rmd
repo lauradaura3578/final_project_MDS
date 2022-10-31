@@ -1,0 +1,1322 @@
+---
+title: "Using 16s rRNA human gut microbiome sequences from subjects with and without Autism Spectrum Disorder to analyse taxonomic differences between disease and control groups and compare the predictive abilities of various supervised-learning models in determining disease presence."
+author: "Laura Isherwood"
+date: '2022-07-08'
+output:
+  pdf_document: default 
+  toc: true
+  number_sections: true
+  fig_caption: true        
+  includes:  
+  in_header: my_header.tex
+urlcolor: blue
+---
+
+```{r, include=FALSE}
+options(tinytex.verbose = TRUE)
+```
+
+
+<p>&nbsp;</p>
+
+# Table of Contents
+1. [Introduction](#Introduction)
+2. [Early Stages and Data Preparation](#Early Stages and Data Preparation)
+3. [Relative Abundance](#Relative Abundance)
+4. [Hierarchical Clustering](#Hierarchical Clustering)
+5. [Looking at Alpha-Diversity](#Looking at Alpha-Diversity)
+6. [Looking at Beta Diversity](#Looking at Beta Diversity) 
+7. [Predictive ability of the Human Microbiome](#Predictive ability of the Human Microbiome)
+    1. [Logistic Regression Model](#Logistic Regression Model)
+    2. [Random Forest Model](#Random Forest Model)
+    3. [Support Vector Machine](#Support Vector Machine)
+
+<p>&nbsp;</p>
+
+## 1. Introduction
+
+Scientific research is increasingly uncovering the link between the the brain, 
+the gut and the wider gastrointestinal system and the role this link plays
+in health and disease (Cryan et al., 2019). This project aims to analyse a dataset
+derived for a paper by Zhou et al., 2020, *Altered gut microbial profile is associated
+with abnormal metabolism activity of Autism Spectrum Disorder*, consisting of 16s rRNA 
+sequences from the microbiota of both children with and without Autism Spectrum
+Disorder (ASD); specifically, in the analysis section, relative abundance of taxa
+and alpha- and beta- diversity between the disease and control groups will be
+examined and clustering will be performed. The project then aims to train 
+classification models using the 254 ASD and control samples, to see which one is 
+best able to predict the presence of ASD from 16s rRNA sequences of the human gut microbiome. 
+Both supervised- and unsupervised-learning techniques will be used throughout; the
+three models that will be built -- a logistic regression, a random forest and
+a support vector machine -- are all examples of supervised-learning, whereas hierarchical
+clustering and principal component (PC) analysis in the analysis section are 
+examples of unsupervised-learning.
+
+### Methodology
+In the anaylsis section, many of the key functions of the [phyloseq](https://joey711.github.io/phyloseq/) package will be used on
+the operational taxonomic unit (OTU) metadata and taxonomic-count data. The
+first step after importing the original Excel file containing the data into R will
+be to create a phyloseq object, two essential components of which include a taxa- and an
+OTU table. Taxonomic relative abundance at the phylum-level will be visualised, 
+faceting the data by group and boxplots will be generated for further visualisation.
+After performing clustering on the samples to visualise similarities between groups 
+through the creation of a dendrogram, the alpha and beta diversities of the groups
+will be examined both visually and statistically, using packages such as the popular
+[vegan](https://cran.r-project.org/web/packages/vegan/vegan.pdf) package for
+descriptive community ecology and appropriate (dis-)similarity measures, such as
+Bray-Curtis and Aitchison distance.
+
+Having analysed the data, the PCs created in the beta-diversity section will then 
+be used to build the models, mainly using the [caret](https://topepo.github.io/caret/) package, which streamlines the 
+model-building process. The data will be split into train-test
+subsets and repeated K-fold cross validation will be specified as a resampling
+method to tune the models optimally. After being tuned on the training set, the 
+models will be tested on the 'unseen' test set and compared based on their receiver
+operating characteristic curves (ROC) and the area under curve (AUC) scores.
+These will be used as a final measure to determine which model has the most predictive
+power in determining the presence of ASD from microbiome 16s rRNA sequence readings.
+
+With regards to the ROC curves, as sensitivity and specificity are inversely proportional
+to each other, when testing the models, I will prioritise bringing the former above
+the latter, where the two are not equal. Applied to a real-world scenario, this would
+lead to children with ASD getting necessary help, which I would place a greater
+importance on than the disease necessarily being ruled out in typically-developed (TD)
+children.
+
+Besides the three main packages, phyloseq, vegan, and caret, many commonly-used packages, 
+such as tidyr, dplyr and ggplot2 will also be use throughout the project.
+
+### Description of the dataset, target variable and features.
+
+The data set can be found on [Kaggle](https://www.kaggle.com/datasets/antaresnyc/human-gut-microbiome-with-asd). The 16s rRNA sequences were derived from stool
+samples collected between May 2016 and August 2017. The original data set used by 
+the authors contained sequences for children with ASD (average age 
+4.937 +/- 0.155; sex, male: female 130:13) and age- and sex- matched controls from
+TD children (average age 5.189 +/- 0.170; sex, male: female 127:16), although the 
+Kaggle data set contained 143 TD samples but only 111 ASD samples. 
+
+Supplemental data from the original paper is available [here](https://www.tandfonline.com/doi/full/10.1080/19490976.2020.1747329?scroll=top&needAccess=true)
+but is incomplete and only exemplary in nature. Therefore it was not possible
+to obtain full age and sex profiles on the subjects, or other data originally
+collected by the authors on factors, including dietary supplements and medications,
+which could have been useful in the anaylsis section for faceting purposes. 
+
+As stated in the paper by Zhou et al., 2020, the children with ASD were diagnosed
+according to the Diagnostic and Statistical Manual of Mental Disorders, 5th Edition;
+the TD children were recruited from Kindergartens and as a control measure, all 
+children underwent examinations to exclude certain diseases which may have affected
+results. Details of further control measures can be found in the original paper.
+
+### 16S rRNA sequencing
+
+The 16S rRNA profiles were derived from feces of the children. An exact description 
+of how the sequences were derived from the fecal samples is beyond the scope and 
+interest of this project. Nonetheless, I will provide a quick overview of my 
+understanding, as follows.
+
+Modern microbiome studies often use 16S rRNA gene sequences for taxonomic identification 
+of bacterial and archaeal strains in complex biological mixtures such as pond water
+or the human microbiome; The 16S rRNA gene is approximately 1600 base pairs long
+(two nitrogen-containing bases or nucleotides that pair together to 
+form the structure of DNA) and includes nine hypervariable regions of varying
+conservation (V1-V9). More conservative regions are useful for determining
+higher-ranking taxa, whereas quicker-evolving ones can help identify genus or
+species; the V3/V4 regions contain the maximum nucleotide heterogeneity and display 
+the maximum discriminatory power for analyses of this type (Bukin et al., 2019). 
+The V4 region was used for data collection and the Illumina platform was used
+to generate the sequences -- a standard software for generating these kinds of
+reads (Logares et al., 2014).
+
+Raw data was analyzed by Majorbio Bio-Pharm Technology Co. Ltd. (Shanghai, China),
+a bioinformatics sequencing service, and the OTUs derived
+for the dataset were clustered using the [Uparse 7.1](http://drive5.com/uparse) software, 
+based on sequence similarity equal to- or greater than- 97%. The original data set consists
+of 1322 OTUs, with 173 and 67 OTUs unique to the TD and ASD groups respectively,
+and 1082 shared units, of which all those seen in more than one sample will be used
+for the analysis section before their principal components are derived for the  model-building section.
+Annotations of taxonomic information were derived using the [RDP classifier](http://sourceforge.net/projects/rdp-classifier) algorithm and the [GreenGene version
+13.5](https://greengenes.secondgenome.com/) database.
+
+<p>&nbsp;</p>
+
+## 2. Early Stages and Data Preparation
+
+```{r setup, include=FALSE}
+#Set up Markdown file and loading necessary packages
+knitr::opts_chunk$set(
+    echo = FALSE,
+    message = FALSE,
+    warning = FALSE
+)
+
+library(pROC) #generating ROCs
+library(readr) #reading in data
+library(readxl) #reading in data
+library(tidyr) #tidying data before starting
+library(rlang) #working with core R and Tidyverse features
+library(caret) #model fitting and evaluation
+library(randomForest) #random forest
+library(tidyverse) #tidying
+library(dplyr) #data manipulation
+library(ggplot2) #plots
+library(vegan) #multivariate analysis of ecological data
+library(mlbench) 
+library(e1071) #svm
+library(ape)
+library(phyloseq) #main package for reproducible interactive analysis of OTU data
+library(dendextend) #dendrogram
+library(metagenomeSeq)
+library(rmarkdown)
+library(DESeq2)
+```
+
+
+```{r, warning=FALSE, comment=FALSE, include=FALSE}
+#CRAN Bioconductor & Github packages installation for those not installed locally
+BiocManager::install("microbiome")
+install.packages("vegan")
+
+if (!require("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+#key packages for OTU data analyses
+
+.cran_packages <- c("tidyverse", "cowplot", "picante", "vegan", "HMP", "dendextend", "rms", "devtools")
+.bioc_packages <- c("phyloseq", "DESeq2", "microbiome", "metagenomeSeq", "ALDEx2")
+.inst <- .cran_packages %in% installed.packages()
+if(any(!.inst)) {
+  install.packages(.cran_packages[!.inst])
+}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+BiocManager::install(.bioc_packages)
+
+```
+
+
+```{r}
+#The dataset when loaded directly is "messy" and goes against the three 
+#rules of tidy data (contains both OTUs and OTU taxonomic info as 
+#variable names). Moreover, observations do not have individual rows with
+#a column name but are displayed as columns alongside the metadata column names.
+#Therefore a few steps need to be taken to tidy the dataset first.  
+
+#The phyloseq package is the main one which will be used to analyse the data and 
+#a lot of the following data preparation steps revolve around initially "getting the data into"
+#a "phyloseq object", after which analysis should be relatively smooth. A phyloseq 
+#"object" contains an OTU table (taxa abundances), sample metadata, a taxonomy table 
+#(mapping between OTUs and higher-level taxonomic classifications), and a phylogenetic 
+#tree (evolutionary relations between the taxa).
+
+#Firstly I will create the taxa table which involves splitting the 'taxonomy' column 
+#and all its rows into its own table with separate columns for each taxonomic order.
+
+#Importing and organising the data
+full_table <- read_csv("GSE113690_Autism_16S_rRNA_OTU_assignment_and_abundance.csv", 
+    col_names = FALSE)
+#Col_names = FALSE will make it easy to "cut" the table up into its individual 
+#components for the phyloseq object.
+
+#I will start making the taxa table for the phyloseq object. I'll start by splitting
+#the meta data on the OTUs in the original dataset into individual taxonomic levels:
+#there are 8, the names of which I need to specify. 
+df <- data.frame(Taxonomy = full_table$X2)
+rownames(df) <- full_table$OTU
+taxonomy_table <- separate(df, col=Taxonomy, 
+                           into = c("Domain", "Kingdom", "Phylum", "Class",
+                                    "Order", "Family", "Genus", "Species")
+                           , sep=';')
+#Remove taxonomy title
+taxonomy_table <- taxonomy_table[-c(1), ]
+#taxa_table needs to be a matrix for phyloseq object.
+taxonomy_table <- as.matrix(taxonomy_table) 
+
+#As there were two row "names" due to the meta field on taxanomic info, and the
+#sample column had no name, when trying to create a tidy OTU table, with each sample
+#as a row, it was easier to first remove the taxa data in Excel and then re-import
+#the data set with an "ID" column name.
+otu_table <-  read_excel("ASD_abundance_transformed2.xlsx")
+
+#Adding column coding disease status, 1 for with ASD, 0 for TD in OTU table.
+otu_table <- otu_table %>%
+  add_column(ASD_status = ifelse(str_detect(otu_table$ID, 'A'), '0','1'))
+
+#Converting variables from character to numeric.
+otu_table <- otu_table %>% 
+  mutate_at(vars(OTU1:OTU1323), as.numeric)
+
+#The phyloseq OTU table object needs to be made up of only taxonomic units so for 
+#this part of the phyloseq I'll clone the original one, converting the first column 
+#subject ID to row names and removing the ASD_status column (which I'll need later
+#to create the sample_data part of the phyloseq object).
+otu_table1 <- column_to_rownames(otu_table, 'ID')
+otu_table1 <- subset(otu_table1, select = -c(ASD_status))
+
+#Finally, having firstly "tidied" up the source table for the otu table, I'll 
+#transpose the table - this means the table won't technically be "tidy" anymore as
+#each sample is now a column instead of a row but for the phyloseq object the row 
+#names of the TAXA and the OTU table need to be the same. There is an option to 
+#have "samples=rows" but from the tutorials I've seen, it seems more standard to
+#have OTUs as rows in the TAXA and OTU tables for phyloseq objects.
+otu_table1 <- t(otu_table1)
+
+#As all the "features" are on the same scale, it won't be necessary to scale the data
+#before starting.
+```
+  
+
+```{r}  
+#The next few steps are to ensure the rownames of the TAXA and OTU objects are matching.
+
+#Joining OTU row names to TAXA table
+full1 <- full_table[-1,]
+colnames(full1) <- full_table[1,]
+dataf3 <- cbind(taxonomy_table, full1[c("OTU")])
+dataf4 <- dataf3 %>%
+  dplyr::select(OTU, everything())
+
+samp2 <- dataf4[,-1]
+rownames(samp2) <- dataf4[,1]
+samp2 <- as.matrix(samp2)
+
+otu_table1 <- as.data.frame(otu_table1)
+vec1 <- full1$OTU
+
+TAX = tax_table(samp2)
+taxa_names(TAX) <- vec1
+#taxa table complete with OTU names.
+
+otu_table1 <- otu_table1 %>% 
+  mutate_at(vars(A1:B61), as.numeric)
+OTU <- otu_table(otu_table1, taxa_are_rows = TRUE)
+OTU <- as.matrix(OTU)
+#OTU table complete
+
+physeq <- phyloseq(OTU, TAX)
+#So far in the phyloseq object we have an OTU and a TAXA table. A phyloseq object also
+#requires sample data.
+```
+
+
+
+
+```{r}
+#Next I'll create the sample_data necessary for the phyloseq object. 
+#In terms of sample data for this data set, only the presence/absence of disease
+#is available and this is our primary variable of interest.
+
+sampledata <- sample_data(data.frame(
+  Status = otu_table$ASD_status,
+  row.names=sample_names(physeq),
+  stringsAsFactors=FALSE))
+
+#An extra dummy/(psuedo)(?) variable was added to the sample data due to an error message regarding
+#only being able to classify the data with more than one X variable - adding one
+#seemed to solve the error message.
+sampledata$disease_category <- ifelse(sampledata$Status == 1, 'ASD', 'Control')
+
+#Creating sample data for physeq object.
+SAMP = sample_data(sampledata)
+
+#Creating the physeq object, finally ready to start the analysis.
+physeq = phyloseq(OTU, TAX, SAMP)
+#Now have the basics for a phyloseq object.
+```
+
+
+After importing the data into R from the Excel file, the first step is to import
+it into a phyloseq object so it can be used for analysis using the phyloseq package. 
+Having pruned any OTUs only seen in one sample, the following phyloseq object is
+yielded, with 1315 taxa on 254 samples, with 8 taxonomic ranks, from the family-
+to the species-level. 
+```{r}
+(physeq <- phyloseq::prune_taxa(phyloseq::taxa_sums(physeq) > 0, physeq)) 
+# Reduce the number of OTUs from 1338 to 1315.
+```
+
+A quick count of the sample data from the phyloseq object
+shows the dataset consists of 143 Controls and 111 ASD samples.
+```{r}
+phyloseq::sample_data(physeq)$Status <- ifelse(phyloseq::sample_data(physeq)$Status == "1", "ASD", "Control")
+phyloseq::sample_data(physeq)$Status <- factor(phyloseq::sample_data(physeq)$Status, levels = c("Control", "ASD"))
+physeq %>% 
+  sample_data %>%
+  dplyr::count(Status)
+```
+
+Next I will do a count of the phyla to see how many readings there are of each type.
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+*Table 1: Phyla read counts* 
+```{r}
+#phyla count
+table(phyloseq::tax_table(physeq)[, "Phylum"])
+
+
+#and convert to relative abundance
+ps_rel_abund <- phyloseq::transform_sample_counts(physeq, function(x){x / sum(x)})
+
+```
+
+There are high read counts for certain groups such as Firmicutes, Bacteroidetes 
+and Proteobacteria but most groups have low read counts. 
+
+## 3. Relative Abundance
+The relative abundance refers to the evenness of distribution of individuals among
+species in a community and shows us the relative distribution of different phyla across the
+two groups. 
+<p>&nbsp;</p>
+*Table 2: First five rows and columns of relative abundance table*
+```{r}
+#first five rows and columns of relative abundance table.
+phyloseq::otu_table(physeq)[1:5, 1:5]
+```
+<p>&nbsp;</p>
+
+We can visualise relative abundances between the disease and control group using a 
+stack chart. Sample names were removed for the sake of tidiness although samples
+were kept separate, as sample-to-sample variability can be high and between-group
+differences can be obscured by aggregation. The phylum-level was used because
+it would be difficult to display the data by a lower taxonomic rank.
+<p>&nbsp;</p>
+```{r, out.width="100%"}
+#create stack chart
+phyloseq::plot_bar(ps_rel_abund, fill = "Phylum") +
+  geom_bar(aes(color = Phylum, fill = Phylum), stat = "identity",
+           position = "stack") +
+  labs(x = "", y = "Relative Abundance\n") +
+  facet_wrap(~ disease_category, scales = "free") +
+  theme(legend.text = element_text(size = 8)) +
+  theme(legend.key.size = unit(0.2, 'cm')) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) 
+```
+
+*Figure 1: Stackchart showing relative abundance at the phylum-level*
+<p>&nbsp;</p>
+There are a total of nineteen phyla classes. The chart illustrates that the ASD
+group has a greater Firmicutes-Bacteroidetes (higher F, lower B) ratio than
+the TD group. Differences between these top two phyla are well documented in the
+literature, being observed not only between disease and control groups for 
+ASD (Strati et al., 2017) but also many other diseases, such as cardiovascular
+diseases and diabetes (Yong et al., 2017). The ASD group also has a slightly greater 
+relative abundance of Actinobacteria, as well as Proteobacteria and Verrucomicrobia; 
+the five afforementioned tend to be the top five phyla found in the microbiome (Qin et al., 2010).
+From a machine-learning perspective, the differences observed here therefore bode well 
+in terms of trying to build models to discriminate between those with- and without ASD
+using such data.
+
+Boxplots offer a breakdown of the abundance counts for each of the 19 phyla between
+the two groups.
+<p>&nbsp;</p>
+*Table 3: OTU table showing first five rows and columns grouped to phylum-level*
+```{r}
+#Group the variables to the phylum-level
+physeq_phylum <- phyloseq::tax_glom(physeq, "Phylum")
+
+phyloseq::taxa_names(physeq_phylum) <- phyloseq::tax_table(physeq_phylum)[, "Phylum"]
+
+phyloseq::otu_table(physeq_phylum)[1:5, 1:5]
+```
+
+
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+
+
+```{r, fig.width = 20, fig.height= 16}
+phyloseq::psmelt(physeq_phylum) %>%
+ggplot(data = ., aes(x = Status, y = Abundance)) +
+  geom_boxplot(outlier.shape  = NA) +
+  theme(text = element_text(size = 16)) +
+  theme(legend.key.size = unit(1.5, 'cm')) +
+  theme(legend.text = element_text(size = 13)) +
+  theme(axis.title.y = element_text(size = 25)) +
+  theme(axis.text.x = element_text(size = 20)) +
+  guides(colour = guide_legend(override.aes = list(size=5))) +
+  geom_jitter(aes(color = OTU), height = .2, width = .2) +
+  labs(x = "", y = "Abundance\n") +
+  facet_wrap(~ OTU, scales = "free")
+```
+<p>&nbsp;</p>
+*Figure 2: Boxplots showing breakdown of raws counts of phyla between groups* 
+
+These plots give us a clearer visualisation of the breakdown between the two 
+groups. There are low read counts for a lot of phylum types so it is difficult to
+make claims with certainty about these types, yet there are some clear differences
+to be seen for certain phyla with larger counts across the two groups.
+<p>&nbsp;</p>
+
+## 4. Hierarchical Clustering
+
+Next I would like to see how similar the two groups are in terms of clusters and will 
+perform Ward’s clustering, which is an example of unsupervised learning. Essentially, it
+finds the pair of clusters at each iteration that minimizes the increase in total
+variance. This allows us to see how far apart the data points in the groups are
+and how different sub-clusters relate to one another. Clustering techniques also 
+require a distance measure, which determines the similarity between two elements 
+and influences the shape of the clusters. Here I will use Bray Curtis dissimilarity, 
+a common choice for biological and ecological contexts, used to quantify how
+different two sites are in terms of the species found there. 
+The measure ranges from 0 to 1, with 0 representing perfect similarity and 1 representing
+perfect disimilarity - the number increases towards one as two samples share 
+fewer taxa and decreases towards 0 as samples share more taxa, as demonstrated
+below by the Bray Curtis scores for the first 5 samples:
+<p>&nbsp;</p>
+*Table 4: Bray-curtis similarity across first five samples*
+```{r}
+set.seed(123)
+#Hierarchal clustering of samples based on Bray-Curtis dissimilarity. 
+#Extract OTU table and compute BC
+ps_rel_otu <- data.frame(phyloseq::otu_table(ps_rel_abund))
+ps_rel_otu <- t(ps_rel_otu)
+bc_dist <- vegan::vegdist(ps_rel_otu, method = "bray")
+as.matrix(bc_dist)[1:5, 1:5]
+```
+
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+
+```{r, fig.width = 22, fig.height= 8, out.height= "100%"}
+set.seed(123)
+#Save as dendrogram
+ward <- as.dendrogram(hclust(bc_dist, method = "ward.D2")) 
+
+meta <- data.frame(phyloseq::sample_data(ps_rel_abund))
+colorCode <- c("0" = "blue", "1" = "red")
+labels_colors(ward) <- colorCode[meta$Status][order.dendrogram(ward)]
+#sizes for graph labels
+par(cex = 0.5, cex.main = 4, cex.lab = 4, cex.axis=3,  mar=c(5, 8, 4, 1), font = 3)
+plot(ward, xlab="", ylab="", main="", sub="", axes=FALSE)
+title(xlab="samples", ylab="BC similarity", main="Ward Clustering")
+axis(2)
+```
+*Figure 3: Dendrogram showing results of Ward Clustering based on BC-similarity*
+
+As we look towards the bottom of the chart we see clear red and blue pockets, for the 
+ASD and TD groups respectively, although towards the top of the chart, it is not clear what a good
+cut-off point for clusters would be. The chart shows Bray-Curtis dissimilarity ranging from
+around 0.7 to around 1.3 and therefore some samples are quite different from one 
+another. 
+
+```{r}
+set.seed(123)
+#Here due to an error message I was required to assign a phylogenetic
+#tree to the physeq object before I could move forward so I created a random tree.
+random_tree = rtree(ntaxa(physeq), rooted=TRUE, tip.label=taxa_names(physeq))
+
+physeq2 = merge_phyloseq(physeq, sample_data, random_tree)
+
+physeq3 = phyloseq(OTU, TAX, sample_data, random_tree, SAMP)
+
+
+save(physeq3, file="physeq3.RData")
+```
+<p>&nbsp;</p>
+## 5. Looking at Alpha-Diversity
+
+Next I will look at how alpha-diversity compares within of the respective
+groups. Put simply, alpha diversity looks at the diversity in a single ecosystem
+or sample and the number of species (or OTUs) observed (with)in the sample. 
+Observed, Shannon and phylogenetic diversity are standard measures for this
+and I will create boxplots to see how the two groups compare on these metrics.
+
+When trying to capture the alpha diversity of a community using sampling methods 
+such as 16s rRNA sequencing, a common issue is that we can never truly know how 
+representative the observed distribution of a sample is of the actual distribution 
+of the environment from which it is sampled. This means different samples may have
+completely varying frequencies of the biological units we are identifying within 
+them, which makes it difficult to calculate diversity measures that accurately 
+compare the samples. 
+
+Rarefaction is one way to address this. This involves standardising
+the data, by randomly picking observations from samples without replacement up to 
+a chosen depth and discarding samples where observed OTU frequency 
+is lower than this, as they cannot be sampled sufficiently without replacement,
+or vice-versa, discarding from samples where OTU frequencies are higher than the 
+chosen depth, once samples have been sufficiently picked without replacement
+(Sanders, 1968; Weiss et al., 2017). Based on the resulting subsamples of equal size,
+diversity metrics can then be calculated that contrast ecosystems “fairly,” 
+independent of differences in sample sizes. I will therefore use perform 
+rarefaction before proceeding and here is the head of the rarefied dataset:
+<p>&nbsp;</p>
+*Table 5: Head of rarefied dataset*
+```{r}
+#Rarefaction with phyloseq
+set.seed(123)
+ps_rare <- phyloseq::rarefy_even_depth(physeq, rngseed = 123, replace = FALSE) 
+
+head(phyloseq::sample_sums(ps_rare))
+```
+
+
+*Table 6: Alpha diversity metrics of samples*
+```{r}
+library(picante)
+#Calculating alpha diversity measures.
+
+ps_rare <- merge_phyloseq(physeq, sample_data, random_tree)
+
+#Generate a data.frame with alpha diversity measures
+alpha_div <- data.frame(
+  "Observed" = phyloseq::estimate_richness(ps_rare, measures = "Observed"),
+  "Shannon" = phyloseq::estimate_richness(ps_rare, measures = "Shannon"),
+  "PD" = picante::pd(samp = data.frame(t(data.frame(phyloseq::otu_table(ps_rare)))), 
+                     tree = phyloseq::phy_tree(ps_rare))[, 1],
+  "Status" = phyloseq::sample_data(ps_rare)$Status)
+head(alpha_div)
+
+
+```
+
+
+
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+
+```{r, fig.width = 20}
+#Plotting alpha diversity measures
+alpha_div %>%
+  gather(key = metric, value = value, c("Observed", "Shannon", "PD")) %>%
+  mutate(metric = factor(metric, levels = c("Observed", "Shannon", "PD"))) %>%
+  ggplot(aes(x = Status, y = value)) +
+  geom_boxplot(outlier.color = NA) +
+  theme(text = element_text(size = 25)) +
+  geom_jitter(aes(color = Status), height = 0, width = .2) +
+  stat_boxplot(geom = "errorbar", width = 0.5) +
+  labs(x = "", y = "") +
+  facet_wrap(~ metric, scales = "free") +
+  theme(legend.position="none")
+
+```
+*Figure 4: Boxplots illustrating alpha diversity between groups*
+<p>&nbsp;</p>
+*Table 7: Median observed alpha diversity metrics between groups*
+```{r}
+#Summarize
+alpha_div %>%
+  group_by(Status) %>%
+  dplyr::summarise(median_observed = median(Observed),
+            median_shannon = median(Shannon),
+            median_pd = median(PD))
+```
+
+
+All three alpha diversity measurements suggest a slightly higher level of diversity
+for the ASD group in comparison to the typically developed group. However, there
+is some overlap in distribution so we will need to test the statistical significance
+of this. This can be done using a Mann Whitney U test on the three measures, with
+a null-hypothesis that the two groups have equal medians and that there is no 
+difference in location.
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+```{r}
+#Wilcoxon test of location
+wilcox.test(Observed ~ Status, data = alpha_div, exact = FALSE, conf.int = TRUE)
+
+```
+
+
+```{r}
+wilcox.test(Shannon ~ Status, data = alpha_div, conf.int = TRUE)
+
+```
+
+```{r}
+wilcox.test(PD ~ Status, data = alpha_div, conf.int = TRUE)
+```
+
+We see the p-value for all of the 3 alpha diversity measures is lower than 0.05,
+which means I will accept the alternative hypothesis that the true location shift
+is not equal to 0.
+
+
+## 6. Looking at Beta Diversity
+
+Next I will look at beta diversity. Whereas alpha diversity focuses on community 
+variation within samples, beta diversity quantifies similarity or dissimilarity
+between samples. More information on both alpha and beta diversity can be found 
+[here](https://microbiome.github.io/OMA/microbiome-diversity.html#ref-Anderson2001), including intuitive explanations of some of the metrics I have used.
+
+### Data Normalisation
+Before beta diversity is examined, because the readings are likely not reflective of the absolute
+abundance of taxa, the transform function of the microbiome R package will be used 
+in a [compositional data analysis](https://towardsdatascience.com/relative-vs-absolute-how-to-do-compositional-data-analyses-part-2-f554eb9b26e) approach to transform the table of OTUs to 
+centred log-ratio form, which takes the ratio in relation to the geometric mean 
+of the whole composition. This is a "normalisation" procedure which helps to account for 
+potentially differing numbers of reads between samples which can be a source of 
+bias when comparing microbiome profile data between two communities and normalisation 
+of data is therefore a common practise before calculating beta diversity. 
+Here is a table showing the centered log-ratio transformations for the first five rows.
+<p>&nbsp;</p>
+*Table 8: First 5 rows of centered-log ratio transformed OTUs*
+```{r}
+#CLR transform
+ps_clr <- microbiome::transform(physeq2, "clr")    
+phyloseq::otu_table(ps_clr)[1:5, 1:5]
+#https://microbiomejournal.biomedcentral.com/articles/10.1186/s40168-017-0237-y (notes)
+
+```
+
+<p>&nbsp;</p>
+Next I will perform PCA to allow me to to compare the samples in a lower dimensional 
+space. PCA looks to find low-dimensional representations of the observations that 
+explain a good fraction of the variance and PC directions are directions in the
+feature space along which the original data are highly variable. With just 254 
+samples but 1315 variables, it would be difficult to attempt to compare the two 
+sample groups on a scatter graph. 
+The PCS derived here will also be used later for building the models, as the number
+of features would otherwise be very large, which would likely lead to not only
+overfitting of the models on the training data but would also make the model-development
+process computationally-expensive.
+<p>&nbsp;</p>
+```{r}
+#PCA via phyloseq
+ord_clr <- phyloseq::ordinate(ps_clr, "RDA")
+
+#Plot scree plotw with first 40 PCs.
+phyloseq::plot_scree(ord_clr) + 
+  geom_bar(stat="identity", fill = "blue") +
+  xlim("PC1", "PC2", "PC3", "PC4", "PC5", "PC6", "PC7", "PC8", "PC9",
+       "PC10", "PC11", "PC12", "PC13", "PC14", "PC15", "PC16", "PC17",
+       "PC18", "PC19", "PC20", "PC21", "PC22", "PC23", "PC24", "PC25",
+       "PC26", "PC27", "PC28", "PC29", "PC30", "PC31", "PC32", "PC33",
+       "PC34", "PC35", "PC36", "PC37", "PC38", "PC39", "PC40") +
+  labs(x = "\nAxis", y = "Proportion of Variance\n")
+
+
+```
+*Figure 5: Scree plot displaying first 40 principle components derived from the data set*
+
+<p>&nbsp;</p>
+*Table 9: First five PCs eigenvalues and percentage of variance explained*
+```{r}
+#Eigenvalues and proportion of variance explained
+head(ord_clr$CA$eig)   
+sapply(ord_clr$CA$eig[1:5], function(x) x / sum(ord_clr$CA$eig))  
+```
+After calculating the principal components, a scree plot can be generated to show
+the amount of variance captured by each one: it can be seen that the first principal
+component is able to display 54% of the variation in the data: after that, the 
+amount of variation explained by the axises drops off up until about the 18th 
+principal component where the plot plateaus. The 18th principal component marks
+the "elbow" of the scree plot which is often used as a cut-off point when deciding 
+how many of the PCs to use in further analysis. Here I have only printed the first
+40 principal components as there were a total of over 200, whereas most of the 
+information held by components beyond the "elbow" are statistical "noise".
+
+<p>&nbsp;</p>
+
+Below I plot the first two components and scale the plot to reflect the relative
+amount of information explained by each axis.
+<p>&nbsp;</p>
+```{r}
+#Scale axes and plot ordination
+clr1 <- ord_clr$CA$eig[1] / sum(ord_clr$CA$eig)
+clr2 <- ord_clr$CA$eig[2] / sum(ord_clr$CA$eig)
+
+phyloseq::plot_ordination(physeq, ord_clr, type="samples", color= "Status") + 
+  geom_point(size = 2) +
+  coord_fixed(clr2 / clr1) +
+  stat_ellipse(aes(group = sampledata$Status), linetype = 2)
+```
+*Figure 6: First two principal components*
+
+The two groups appear to be clearly separated along these components but the Permutation Based Analysis
+of Variance (PERMANOVA) (Anderson, 2001) allows us to test the population distribution of the
+environment in which the samples were collected statistically and if the centroids
+and dispersion of the community between groups significantly differ from one another.
+The test is non-parametric which is useful as we don't need to make any assumptions 
+about the distribution of the data and only has one assumption of exchangeability.
+
+```{r}
+#calculate average distance of group members to group centroid in multivariate space
+#To test if variances of one or more groups are different, distances of group members
+#to the group centroid are subject to ANOVA.
+dist <- phyloseq::distance(ps_clr, method = "euclidean")
+dispr <- vegan::betadisper(dist, phyloseq::sample_data(ps_clr)$Status)
+dispr
+```
+
+```{r}
+plot(dispr, main = "Ordination Centroids and Dispersion Labeled: Aitchison Distance", sub = "")
+```
+*Figure 7: Centroid plots for samples based on Aitchison distance*
+
+Having calculated the average distance of samples to their respective group centroids and plotted
+the samples based on their Aitchison distance, they appear to be clearly separated. 
+I will now carry out the permutations.
+
+```{r}
+permutest(dispr)
+```
+Based on 999 permutations, we can see that the community composition is significantly 
+different between the groups. 
+
+
+## 7. Predictive ability of the Human Microbiome
+
+Having examined differences between the 16s rRNA sequences from the disease and
+control groups, I will now move on to focus on the predictive ability of the 
+microbiome and build and compare 3 classification models. I will primarily be using
+the Caret (Classification And REgression Training) packet for this section, as it 
+integrates all the functions related to model development into one package, 
+streamlining the model-build process, for example, through allowing functions from 
+its backend packages to be wrapped within its functions.
+
+As aforementioned, I will be building the models on PCs, as having 1315 OTUs 
+as features would be very computationally expensive and may lead to overfitting
+of the model to the training data. The 'elbow' of the scree plot above, suggests
+the first 18 PCs are important so I will start by creating a dataframe of the 
+centered log-ratios for these as well the disease category column - our main variable
+of interest for classification. The head of the data frame can be seen below. 
+
+<p>&nbsp;</p>
+*Table 10: Head of table containing centered-log ratio of 18 features and target variable* 
+```{r}
+#First I will create the dataframe of our principal components which will be used
+#to build the models.
+clr_pcs <- data.frame(
+  "pc1" = ord_clr$CA$u[,1],
+  "pc2" = ord_clr$CA$u[,2],
+  "pc3" = ord_clr$CA$u[,3],
+  "pc4" = ord_clr$CA$u[,4],
+  "pc5" = ord_clr$CA$u[,5],
+  "pc6" = ord_clr$CA$u[,6],
+  "pc7" = ord_clr$CA$u[,7],
+  "pc8" = ord_clr$CA$u[,8],
+  "pc9" = ord_clr$CA$u[,9],
+  "pc10" = ord_clr$CA$u[,10],
+  "pc11" = ord_clr$CA$u[,11],
+  "pc12" = ord_clr$CA$u[,12],
+  "pc13" = ord_clr$CA$u[,13],
+  "pc14" = ord_clr$CA$u[,14],
+  "pc15" = ord_clr$CA$u[,15],
+  "pc16" = ord_clr$CA$u[,16],
+  "pc17" = ord_clr$CA$u[,17],
+  "pc18" = ord_clr$CA$u[,18],
+  "Status" = phyloseq::sample_data(ps_clr)$Status
+)
+
+clr_pcs$Status <- as.numeric(clr_pcs$Status)
+head(clr_pcs)
+
+```
+<p>&nbsp;</p>
+
+### Data Partitioning
+
+The first step towards building models is to create the training and testing sets,
+which can be done with the caret package createDataPartition function. This creates
+balanced splits of the data. If the y argument to this function is a factor, 
+random sampling occurs within each class and the advantage of using the caret function
+for this over base R's sample function, is that it preserves the overall class
+distribution of the data. I will do an 80:20 training testing split based on the
+Status variable. It is common to use between 70-80% of the data for training and 
+to put aside the remaining  20-30% for testing. 
+
+There is a slight imbalance in the dataset, i.e. 143 ASD samples and 111 Controls
+(57% vs 43%) and it is important to address this before creating the training sets,
+as imbalanced training data will introduce bias when the models are built
+and, in our case, lead the models being developed based on features dominant to the
+TD class. This means the classification threshold will be higher for the ASD class and
+thus more samples will be classified into the Control class when the models are tested. 
+To address this, I will use the caret upSample function, which essentially matches
+the sample number of the subdominant class to that of the dominant class through 
+random resampling -- here "upsampling" the ASD samples. An alternative would be 
+to "downsample" the majority class, i.e. randomly remove samples from the TD group.
+However, because the data set is already small, meaning the test set will be small, I
+can't afford to "throw away" samples and upsampling will be preferred. It is not 
+necessary to address imbalances in the test set because this should be reflective
+of the real world.
+
+*Table 11: Final counts for each group after splitting data into 80:20 train and test sets* 
+```{r}
+clr_pcs$Status <- as.factor(clr_pcs$Status)
+#Data partition with an 80:20 training-testing data split.
+#Creates a vector of rows to randomly sample from the data by the Status variable
+#with 80:20 split.
+set.seed(123)
+inTraining <- createDataPartition(clr_pcs$Status, p = .80, list = FALSE)
+
+#stores these rows in the training set
+training <- clr_pcs[ inTraining, ]
+
+#stores all rows not in training set in testing set
+testing  <- clr_pcs[-inTraining, ]
+
+set.seed(123)
+training <- upSample(x = training[, -ncol(training)],
+                     y = training$Status,
+                     yname = "Status")                         
+levels(training$Status) <- c("Control", "ASD")
+levels(testing$Status) <- c("Control", "ASD")
+
+table(training$Status) 
+table(testing$Status)
+
+training$Status <- relevel(training$Status, ref = "ASD")
+testing$Status <- relevel(testing$Status, ref = "ASD")
+```
+As we can see, the two classes are now balanced and we have artificially created
+more samples in the ASD group in the training set so that there are 115
+samples in both groups, which should eliminate any bias in the models. In the test 
+set, on the other hand, there is a clear imbalance, with 28 Control and 22 ASD 
+samples but this is okay as it reflects the real world.
+
+### Specifying the resampling regime
+The models each have parameters which are to be tuned, some more than others.
+Caret makes hyperparameter tuning easy and automatically tunes models with each 
+training run but it also possible to tune the models manually, depending on your 
+data. Another useful function from the caret package is the trainControl function,
+which allows you to specify a set of instructions and the resampling approach for
+caret to use to train the models. I will set the resampling scheme to 10-fold
+cross-validation with 5 repeats to -- a common choice -- to reduce overfitting on 
+the training data.
+```{r}
+set.seed(123)
+#Specifiying the summaryFunction function lets caret know we want to optimise 
+#on the tradeoff between sensitivity and specificity.
+ctrl <- trainControl(
+  method = "repeatedcv",
+  number = 10,
+  classProbs = TRUE,
+  repeats = 5,
+  summaryFunction = twoClassSummary,
+  savePredictions = T)
+```
+ 
+ 
+### 7.1 Logistic Regression Model
+The first model I will fit will be a logistic regression model, an example
+of a supervised-learning classification model. I am using supervised-learning techniques
+because disease class labels are already available in the data and my goal is to predict 
+future observations. Unsupervised learning techniques, on the other hand, would be
+used to identify patterns from the data if labels were not already available, for 
+example, as seen in the hierarchical clustering above, where clusters were created
+based on sample similarity but not directly on disease-class labels.
+
+Classification models try to best separate samples and fit a decision boundary 
+between the points. Logistic regression is a suitable choice of a supervised learning
+algorithm for predicting binary outcomes, as the logit link takes linear combinations
+of the covariate values between minus and plus infinity and maps those values to the
+scale of probability, in contrast to linear regression where the y value range can 
+be infinite. 
+
+There are no major hyperparameters to tune when the model is not penalised (as a rule 
+of thumb, if the number of predictors is more than five times the sample size then
+penalisation should be used - here the number of features has been reduced 
+substantially through PCA from 1315 to 18 - so penalisation is unlikely to have
+a great effect on model optimisation). Below are the results of the logistic regression model.
+```{r}
+#Caret train function to fit the logistic regression model. The method around which
+#we wrap the train function here is glm and the family is binomial because we are 
+#doing a logistic regression. trControl is where we give the prespecified resampling
+#method.
+set.seed(123)
+lr_model <- train(Status ~., data = training, trControl = ctrl, method = "glm", metric = "ROC",
+                         family = "binomial")
+lr_model
+```
+
+Having specified the model above, we can firstly see how the model performs on the 
+training data and see how the model classifies samples after cross-validation.
+```{r}
+#here we can display the summary of the results from the cross-validation.
+sub_lr_model <- subset(lr_model$pred)
+caret::confusionMatrix(table(sub_lr_model$pred, sub_lr_model$obs))
+```
+Using sensitivity and specificity as measures, I would be satisfied with a model 
+where both values are approximately equal or a slightly higher specificity, because
+as aforementioned, although ASD is not necessarily life-threatening, I would prioritise
+making sure children with ASD get a correct diagnosis, i.e. the true-positive rate,
+and received necessary help, as opposed to ASD necessarily being ruled out in 
+children without the disease, i.e. the true negative rate.  
+
+The ROC (AUC score) provides an aggregate measure of performance of both measures
+across all possible classification thresholds and I will therefore use this as
+a final measure of when comparing models. A model whose predictions are 100% wrong
+has an AUC of 0 and one whose predictions are 100% correct has a score of 1. An
+ROC (AUC) score of 0.96, with 0.90 sensitivity and 0.90 specificity is good.
+However, so far I have only "tested" the model on the data used to train it and
+therefore these results are not surprising. Thus I will move on to test the model
+on the "unseen" test set I put aside earlier to get a better idea of how the model
+would perform in a real-world setting.
+
+```{r}
+set.seed(123)
+lr_modeltest <- predict(lr_model, newdata = testing)
+confusionMatrix(reference = testing$Status, data = lr_modeltest, mode = "everything")
+```
+
+Having tested the model on the unseen data, there is some disparity between 
+sensitivity and specificity, with a higher specificity. This is not ideal in terms
+of the aims of the model building and one out-of-the-box approach to optimise 
+classification would be to try different decision boundaries instead of the logistic
+regression default value of 0.5. This is not representative of the prevalence of
+the disease in the real-world and would therefore make no sense if the model was
+to be used to determine the presence of ASD from such data in a real-world setting.
+
+```{r}
+#changing decision boundary. After a bit of trial and error, 0.04 seemed like a
+#good value.
+set.seed(123)
+fittedProblr <- predict(lr_model, testing, type = "prob")
+alteredProblr <- fittedProblr$ASD
+alteredProblr <- factor(ifelse(alteredProblr >= 0.04, "ASD", "Control"))
+```
+
+
+```{r}
+#Confusion matrix with adjusted classification threshold.
+set.seed(123)
+confusionMatrix(reference = testing$Status, data = alteredProblr, mode = "everything",
+                positive = "ASD")
+```
+
+Having tested a few different decision boundaries, my final choice was a cut-off
+value of 0.04 and I am satisfied with the final sensitivity (1) and specificity (0.82)
+values. As the prevalence of ASD in the real-world population is one in 100
+children ([WHO, 2022](https://www.who.int/news-room/fact-sheets/detail/autism-spectrum-disorders)), I expected I would have to make the boundary quite low and 
+this value allowed all children in the ASD group to be correctly classified at no
+greater cost to specificity than would be if some of the ASD samples were falsely
+classified.
+
+For classification models there is a trade-off between sensitivity and specificity 
+that depends on the classification threshold used to map predicted probabilities
+to categories. One way to visually represent this trade-off is by plotting Receiver Operating
+Characteristics (ROC) curves, which show the true positive and true negative rates
+(TPR & TNR) at all classification thresholds. The y-axis shows the sensitivity, 
+while the x-axis shows 1-specificity and the curve depicts the sensitivities and
+1-specificities that result from different decision thresholds. I will proceed to 
+plot the ROC curve for the logistic regression model.
+
+```{r}
+library(ROCR)
+predictionslr <- fittedProblr$Control
+labels <- testing$Status
+predlr <- prediction(predictionslr, labels)
+```
+ 
+```{r}
+#Here I specified which performance metrics I want to visualise and have specified
+#the true-positive rate (sensitivity) and the false positive rate (1-specificity).
+#ROC curve plot
+set.seed(123)
+perflr <- performance(predlr, "tpr", "fpr")
+plot(perflr, avg = "threshold", colorize = TRUE)
+```
+*Figure 8: ROC curve logistic regression model*
+
+Finally from the ROC curve, we can calculate the AUC score which is useful as a final
+measure of model performance. An AUC close to 1 means it has a good measure of separability.
+A poor model has an AUC near 0 which means it has the worst measure of separability
+and an AUC of 0.5 means the model has no ability to distinguish between classes.
+
+```{r}
+# Get AUC value
+auc_lr <- performance(predlr, measure = "auc")
+auc_lr <- auc_lr@y.values[[1]]
+auc_lr
+```
+
+The final AUC value for model 1 is 0.97 and I am therefore satisfied with the
+classification abilities of the logistic regression model but I will now move on 
+to train a random forest and svm model to see if I can improve on this score.
+
+### 7.2 Random Forest Model
+
+Random forest is an ensemble machine 
+learning method that creates and combines multiple decision trees into a
+single model by aggregating the individual tree predictions, thus producing better
+predictions than single decision trees. 
+
+The two main tuning parameters for the random forest model are mtry (no. of variables
+to randomly sample as candidates at each split) and ntree (no. of
+trees), although more importance is placed on the former. For the latter parameter,
+as long as enough trees are provided to stabilize error, an exact number does not need to 
+be specified. On the other hand, too many trees will slow the model down. The random 
+forest method uses a default value of 500 trees - I will check later if this is
+an appropriate number. 
+
+Below are the results of the random forest model.
+
+```{r}
+#RF Model train
+set.seed(123)
+RF_model <- train(Status ~., data = training, method = "rf", metric = "ROC",
+                  proximity = TRUE, tuneLength = 10, trControl = ctrl)
+#Print model
+RF_model
+```
+
+Again, I will first look at the results of the 10 resampling folds for the random 
+forest model.
+
+```{r}
+set.seed(123)
+#compile resampling results across folds
+sub_rf_model <- subset(RF_model$pred, (RF_model$pred$mtry==RF_model$bestTune$mtry))
+#confusion matrix
+caret::confusionMatrix(table(sub_rf_model$pred,sub_rf_model$obs), positive = "ASD")
+```
+
+We can see that both sensitivity and specificity are already higher for the random
+forest model than the logistic regression. But specificity is 
+still higher than sensitivity, so again, I will see how the model performs on the 
+unseen data and then alter the decision boundary as necessary in my aim to get
+sensitivity either equal to specificity or greater.
+
+```{r}
+set.seed(123)
+#RF model predictions
+RF_modeltest <- predict(RF_model, newdata = testing)
+
+#predictions confusion matrix
+confusionMatrix(reference = testing$Status, data = RF_modeltest, mode = "everything", positive = "ASD")
+```
+
+```{r}
+#altering decision boundary
+set.seed(123)
+fittedProbrf <- predict(RF_model, testing, type = "prob")
+alteredProbrf <- fittedProbrf$ASD
+alteredProbrf <- factor(ifelse(alteredProbrf >= 0.2, "ASD", "Control"))
+```
+
+As expected, specificity is still higher than sensitivity so again, after experimenting
+with a few different values, a decision boundary of 0.2 yields the following
+results.
+
+```{r}
+#altered decision boundary test confusion matrix
+set.seed(123)
+confusionMatrix(reference = testing$Status, data = alteredProbrf, mode = "everything",
+                positive = "ASD")
+```
+Again, by altering the classification threshold, I was able to bring sensitivity
+(1) above specificity (0.89) and decrease the disparity between the
+two measures. I am satisfied with this trade-off between the two values and the 
+random forest appears to perform better than the logistic regression.
+
+As already mentioned, there are two main parameters in the random forest 
+model, mtry and ntree. The caret package mainly focuses on the mtry parameter for 
+model training purposes, however, and deems the ntree hyperparameter to be of peripheral importance, 
+which plateaus at some point as long as we have 'enough' trees. I will now do a quick
+plot of the RF model's error rate of up to ntree = 1000 to check whether 500 is enough.
+
+```{r}
+set.seed(123)
+#specifying rf model with optimised mtry value and 1000 trees to access err.rates
+#for trees.
+RF_optimal <- randomForest(Status ~., data = training, mtry = 10, ntree = 1000,
+                            proximity = TRUE, metric = "ROC ")
+
+#create dataframe of err.rates needed for plot
+RF_oob_error_data <- data.frame(
+  Trees=rep(1:nrow(RF_optimal$err.rate), times= 3),
+  Type=rep(c("OOB", "Control", "ASD"), each=nrow(RF_optimal$err.rate)),
+  Error=c(RF_optimal$err.rate[, "OOB"],
+          RF_optimal$err.rate[, "Control"],
+          RF_optimal$err.rate[, "ASD"]))
+
+#plot error rate for 1000 trees
+ggplot(data=RF_oob_error_data, aes(x=Trees, y=Error)) +
+  geom_line(aes(color=Type))
+```
+*Figure 9: Error rate plot for ntree=1000*
+
+Having plotted the Random Forest model error rate for up to 1000 trees, it is
+clear the ntree already plateaus at some point around 250 trees and I am therefore 
+satisfied with the default number chosen by random forest. 
+
+I will now move on to create the ROC for the Random Forest model, which yields 
+the following plot.
+```{r}
+set.seed(123)
+fittedProbrf <- predict(RF_model, testing, type = "prob")
+predictions <- fittedProbrf$Control
+labels <- testing$Status
+pred <- prediction(predictions, labels)
+```
+
+```{r}
+set.seed(123)
+# Get ROC curve plot
+perf <- performance(pred, "tpr", "fpr")
+plot(perf, avg = "threshold", colorize = TRUE)
+```
+*Figure 10: ROC curve for random forest model*
+
+```{r}
+# Get AUC value
+auc_RF <- performance(pred, measure = "auc")
+auc_RF <- auc_RF@y.values[[1]]
+auc_RF
+```
+I am highly satisfied with the AUC value for the random forest, which has so far
+outperformed the logistic regression model.
+
+## 7.3 Support Vector Machine
+
+The final model I will fit will be a Support Vector Machine, a popular supervised
+learning algorithm for classification problems. For this the selection of a kernel 
+is required - a Radial Basis Function Kernel is a popular choice. 
+The svm has the advantage of the "kernel trick", which means the model is constructed
+on a kernel matrix instead of the initial data, which reduces computational complexity.
+The model has two hyperparameters, the cost, C, which decides how much an SVM should be allowed
+to “bend” with the data, and sigma which is used to decide how "curvy" the weight of the 
+decision boundary is. Below are the initial results of the train run for the svm model.
+
+```{r}
+library(e1071) 
+library(kernlab) #svm libraries
+set.seed(123)
+svm_modelfit <- train(Status ~ .,
+                 data = training, method = "svmRadialSigma", metric = "ROC",
+                  proximity = TRUE, trControl = ctrl)
+svm_modelfit
+```
+Below we can visualise the results of the different values tried by caret for both
+the cost and sigma values produced. It is also possible to add the tuneGrid argument
+to carets train function when building models, which specifies which tuning values
+to test in training. However, caret usually makes good choices when picking which
+values to try, as demonstrated below, and therefore this is often not necessary 
+and can be more computationally expensive.
+<p>&nbsp;</p>
+
+```{r}
+plot(svm_modelfit)
+```
+*Figure 11: Different hyperparameter values tested by caret for svm and ROC scores*
+
+Below are the combined results of the different resampling folds. 
+```{r}
+sub_svm_model <- subset(svm_modelfit$pred, (svm_modelfit$pred$C==svm_modelfit$bestTune$C)& svm_modelfit$pred$sigma==svm_modelfit$bestTune$sigma)
+
+caret::confusionMatrix(table(sub_svm_model$pred,sub_svm_model$obs), positive = "ASD")
+```
+Again, we can already see that specificity is higher than sensitivity so I will
+first test the model and then alter the decision boundary as necessary.
+
+```{r}
+svm_modeltest <- predict(svm_modelfit, newdata = testing)
+
+confusionMatrix(reference = testing$Status, data = svm_modeltest, mode = "everything")
+```
+Again, specificity is notably greater than sensitivity which is not suitable for
+the purposes of the model and I will therefore alter the decision boundary.
+
+```{r}
+set.seed(123)
+fittedProbsvm <- predict(svm_modelfit, testing, type = "prob")
+alteredProbsvm <- fittedProbsvm$ASD
+alteredProbsvm <- factor(ifelse(alteredProbsvm >= 0.1, "ASD", "Control"))
+```
+
+
+```{r}
+set.seed(123)
+confusionMatrix(reference = testing$Status, data = alteredProbsvm, mode = "everything",
+                positive = "ASD")
+```
+After altering the decision boundary to 0.1 I am now satisfied with the resulting
+sensitivity and specificity scores and will proceed to create the ROC for the svm
+model.
+```{r}
+fittedProbsvm <- predict(svm_modelfit, testing, type = "prob")
+predictions <- fittedProbsvm$Control
+labels <- testing$Status
+pred <- prediction(predictions, labels)
+```
+
+
+```{r}
+set.seed(123)
+# Get ROC curve plot
+perf <- performance(pred, "tpr", "fpr")
+plot(perf, avg = "threshold", colorize = TRUE)
+```
+<p>&nbsp;</p>
+*Figure 12: ROC curve for support vector machine*
+
+
+```{r}
+# Get AUC value
+auc_svm <- performance(pred, measure = "auc")
+auc_svm <- auc_svm@y.values[[1]]
+auc_svm
+```
+The final AUC score for the svm model is 0.985 which means its performance is second
+to the random forest model. 
+
+Finally, having built all 3 models, we can see how they compare in terms of their
+resampling results and the resamples function can be used to collect, summarize and
+contrast these. Since the random number seeds were initialized to the same value
+prior to calling train, the same folds were used for each model. Assembling them 
+yields the following final results.
+
+```{r}
+set.seed(123)
+resamps <- resamples(list(LR = lr_model, RF = RF_model,
+                          SVM = svm_modelfit))
+resamps 
+summary(resamps)
+```
+Based on the resampling results, of the three models, we can confirm the random 
+forest model was best able to determine the presence of ASD from 16s rRNA human
+gut microbiome sequences, followed by the support vector machine and the random 
+forest. However, overall all models demonstrated good classification abilities.
+
+<p>&nbsp;</p>
+
+REFERENCES
+
+Anderson, M. J. (2001). A new method for non‐parametric multivariate analysis of
+variance. Austral ecology, 26(1), 32-46.
+
+Bukin, Y. S., Galachyants, Y. P., Morozov, I. V., Bukin, S. V., Zakharenko, A.
+S., & Zemskaya, T. I. (2019). The effect of 16S rRNA region choice on bacterial 
+community metabarcoding results. Scientific Data, 6(1), 1-14.
+
+Cryan, J. F., O'Riordan, K. J., Cowan, C. S., Sandhu, K. V., Bastiaanssen, T. 
+F., Boehme, M., ... & Dinan, T. G. (2019). The microbiota-gut-brain axis. 
+Physiological reviews.
+
+Dan, Z., Mao, X., Liu, Q., Guo, M., Zhuang, Y., Liu, Z., ... & Liu, X. (2020).
+Altered gut microbial profile is associated with abnormal metabolism activity of
+autism spectrum disorder. Gut Microbes, 11(5), 1246-1267.
+
+Logares, R., Sunagawa, S., Salazar, G., Cornejo‐Castillo, F. M., Ferrera, I.,
+Sarmento, H., ... & Acinas, S. G. (2014). Metagenomic 16S rDNA I llumina tags are
+a powerful alternative to amplicon sequencing to explore diversity and structure 
+of microbial communities. Environmental microbiology, 16(9), 2659-2671.
+
+Qin, J., Li, R., Raes, J., Arumugam, M., Burgdorf, K. S., Manichanh, C., ... &
+Wang, J. (2010). A human gut microbial gene catalogue established by metagenomic 
+sequencing. nature, 464(7285), 59-65.
+
+Sanders, H. L. (1968). Marine benthic diversity: a comparative study. The 
+American Naturalist, 102(925), 243-282.
+
+Strati, F., Cavalieri, D., Albanese, D., De Felice, C., Donati, C., Hayek, J.,
+... & De Filippo, C. (2017). New evidences on the altered gut microbiota in autism
+spectrum disorders. Microbiome, 5(1), 1-11.
+
+Weiss, S., Xu, Z. Z., Peddada, S., Amir, A., Bittinger, K., Gonzalez, A., ... & 
+Knight, R. (2017). Normalization and microbial differential abundance strategies 
+depend upon data characteristics. Microbiome, 5(1), 1-18.
+
+Young, V. B. (2017). The role of the microbiome in human health and disease: an
+introduction for clinicians. Bmj, 356.
+
+Websites:
+Importing phyloseq Data. (n.d.). Retrieved October 31, 2022, from https://joey711
+.github.io/phyloseq/import-data.html. Used for importing data into phyloseq object.
+
+Introduction to the Statistical Analysis of Microbiome Data in R. (2019, July 29).
+Academic. https://www.nicholas-ollberding.com/post/introduction-to-the-statistical
+-analysis-of-microbiome-data-in-r/. Used as tutorial to guide analyis section.
